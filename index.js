@@ -10,6 +10,10 @@ const { attachRelay } = require('./relay.js');
 const port = +process.env.PORT || 8080;
 const DEFAULT_ORIGINS = [
   '^https://([a-z0-9-]+\\.)*itch\\.(zone|io)$',             // itch.io game embeds and pages
+  '^https://([a-z0-9-]+\\.)*crazygames\\.com$',             // CrazyGames (games.crazygames.com, *.game-files.crazygames.com, preview tool)
+  '^capacitor://([a-z0-9-]+\\.)*crazygames\\.com$',         // CrazyGames iOS app
+  '^https://([a-z0-9-]+\\.)*gamejolt\\.(com|net|io)$',      // Game Jolt
+  '^https://([a-z0-9-]+\\.)*(newgrounds\\.com|ungrounded\\.net)$', // Newgrounds uploads
   '^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$',          // local play / testing
   '^http://(192\\.168|10)\\.\\d+\\.\\d+(\\.\\d+)?(:\\d+)?$', // home network (phone navigator)
   '^file://', '^null$'                                        // game opened straight from disk
