@@ -3,9 +3,11 @@
 //   ALLOWED_ORIGINS  comma-separated regexes for pages allowed to connect. Default: itch.io embeds,
 //                    localhost and home networks. Set to "*" to allow any page.
 // Endpoints: GET /health -> {"ok":true,"rooms":n,"players":n}     WebSocket: /ws
+//            POST /event (anonymous play counters from the game)  GET /stats -> totals since start
 'use strict';
 const http = require('http');
 const { attachRelay } = require('./relay.js');
+const { createStats } = require('./stats.js');
 
 const port = +process.env.PORT || 8080;
 const DEFAULT_ORIGINS = [
@@ -21,8 +23,16 @@ const DEFAULT_ORIGINS = [
 const env = (process.env.ALLOWED_ORIGINS || '').trim();
 const allowed = env === '*' ? [] : (env ? env.split(',').map(s => s.trim()).filter(Boolean) : DEFAULT_ORIGINS);
 
+const originRes = allowed.map(o => new RegExp(o));
+const stats = createStats({ isAllowed: o => !originRes.length || originRes.some(re => re.test(o)), log: (...a) => console.log(new Date().toISOString(), ...a) });
+
 const server = http.createServer((req, res) => {
   const p = new URL(req.url, 'http://x').pathname;
+  if (p === '/event') return stats.handle(req, res);   // anonymous play counters (see stats.js)
+  if (p === '/stats') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+    return res.end(JSON.stringify(stats.summary(), null, 2));
+  }
   if (p === '/health' || p === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
     return res.end(JSON.stringify({ ok: true, service: 'blind-stage-relay', ...relay.stats() }));
