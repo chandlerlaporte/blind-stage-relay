@@ -37,6 +37,29 @@ function createStats(opts) {
     log('EV', JSON.stringify({ e, p, s: sk, v: String(d.v || '').slice(0, 12), vis: VIS.has(d.vis) ? d.vis : undefined, t: num(d.t, 0, 3600) ?? undefined, prog: num(d.prog, -1, 100) ?? undefined, secs: num(d.secs, 0, 21600) ?? undefined, q: d.q ? 1 : undefined }));
   }
 
+  // ---- Core Drill (fatalyze.itch.io/core-drill) posts {g:'coredrill', e, pl (planet), d (depth), ...}
+  const CD_EVENTS = new Set(['load', 'milestone', 'launch', 'leave', 'rate']);
+  const cd = { sessions: 0, newPlayers: 0, leaves: 0, playSecs: 0, milestones: {}, leaveDepth: {}, launches: 0, breaches: 0, launchMaxSum: 0, launchMinsSum: 0, rate: { yes: 0, later: 0 }, events: {} };
+  function recordCD(d) {
+    const e = d.e, pl = num(d.pl, 0, 99) || 0, dep = num(d.d, 0, 1000);
+    cd.events[e] = (cd.events[e] || 0) + 1;
+    if (e === 'load') { cd.sessions++; if (d.newp) cd.newPlayers++; }
+    else if (e === 'leave') {
+      const secs = num(d.secs, 0, 12 * 3600); if (secs != null) { cd.playSecs += secs; cd.leaves++; }
+      if (dep != null) { const b = 'p' + pl + ':' + Math.floor(dep / 100) * 100; cd.leaveDepth[b] = (cd.leaveDepth[b] || 0) + 1; }
+    } else if (e === 'milestone') {
+      const m = num(d.m, 100, 1000); if (m != null) { const k = 'p' + pl + ':' + m; const M = cd.milestones[k] || (cd.milestones[k] = { runs: 0, minsSum: 0 }); M.runs++; M.minsSum += num(d.mins, 0, 100000) || 0; }
+    } else if (e === 'launch') { cd.launches++; if (d.br) cd.breaches++; cd.launchMaxSum += num(d.max, 0, 1000) || 0; cd.launchMinsSum += num(d.mins, 0, 100000) || 0; }
+    else if (e === 'rate') { if (d.c === 'yes') cd.rate.yes++; else cd.rate.later++; }
+    log('CD', JSON.stringify({ e, pl, d: dep ?? undefined, m: num(d.m, 0, 1000) ?? undefined, mins: num(d.mins, 0, 100000) ?? undefined, secs: num(d.secs, 0, 43200) ?? undefined, max: num(d.max, 0, 1000) ?? undefined, br: d.br ? 1 : undefined, c: d.c === 'yes' || d.c === 'later' ? d.c : undefined, v: String(d.v || '').slice(0, 12) }));
+  }
+  function summaryCD() {
+    const milestones = {};
+    for (const [k, M] of Object.entries(cd.milestones)) milestones[k] = { runs: M.runs, avgMins: Math.round(10 * M.minsSum / M.runs) / 10 };
+    return { sessions: cd.sessions, newPlayers: cd.newPlayers, avgSessionSecs: cd.leaves ? Math.round(cd.playSecs / cd.leaves) : null, milestones, leaveDepth: cd.leaveDepth,
+      launches: cd.launches, breaches: cd.breaches, avgLaunchDepth: cd.launches ? Math.round(cd.launchMaxSum / cd.launches) : null, avgLaunchMins: cd.launches ? Math.round(10 * cd.launchMinsSum / cd.launches) / 10 : null, rate: cd.rate, events: cd.events };
+  }
+
   function handle(req, res) {
     const origin = req.headers.origin || 'null';
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Max-Age': '86400' }); return res.end(); }
@@ -50,7 +73,9 @@ function createStats(opts) {
     req.on('end', () => {
       res.writeHead(204, { 'Access-Control-Allow-Origin': '*' }); res.end();
       let d; try { d = JSON.parse(body); } catch (e) { return; }
-      if (d && typeof d === 'object' && EVENTS.has(d.e)) record(d);
+      if (!d || typeof d !== 'object') return;
+      if (d.g === 'coredrill') { if (CD_EVENTS.has(d.e)) recordCD(d); }
+      else if (EVENTS.has(d.e)) record(d);
     });
   }
 
@@ -67,7 +92,8 @@ function createStats(opts) {
     return {
       since, note: 'Totals since the server last started (the free host sleeps after ~15 min idle, which resets them). Every event is also in the host log as an "EV" line.',
       sessions: t.sessions, newPlayers: t.newPlayers, avgSessionSecs: leaves ? Math.round(t.playSecs / leaves) : null,
-      quickStarts: t.quickStarts, guideCompleted: t.coached, coopConnections: t.coop, byPortal: t.portals, events: t.events, stages
+      quickStarts: t.quickStarts, guideCompleted: t.coached, coopConnections: t.coop, byPortal: t.portals, events: t.events, stages,
+      coreDrill: summaryCD()
     };
   }
   return { handle, summary };
